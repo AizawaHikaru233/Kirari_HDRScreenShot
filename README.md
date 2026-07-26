@@ -6,7 +6,7 @@
 
 ## 功能
 
-- **PixPin 风格触发**：全局快捷键（默认 `Ctrl+Shift+A`）或双击托盘图标，自动识别光标下的窗口，也可拖拽框选任意区域；选区可再拖动移动、拉动边缘缩放。
+- **快速上手**：全局快捷键（默认 `Ctrl+Shift+A`）或双击托盘图标，自动识别光标下的窗口，也可拖拽框选任意区域；选区可再拖动移动、拉动边缘缩放。
 - **真 HDR 取景预览**：框选时画面通过 FP16 交换链原样显示 HDR 亮度，选区外压暗；SDR 内容与桌面完全一致。
 - **标注工具栏**：涂鸦、箭头、框选（矩形 / 椭圆）、马赛克、像素级橡皮擦，均带颜色 / 粗细等子选项；`Ctrl+Z` 撤销。标注按时间顺序在完成时以线性光合成进 HDR 帧，不损失 HDR 精度。
 - **放大镜取色**：像素网格、坐标与光标颜色实时显示，`C` 复制颜色值，`Shift` 切换 RGB / 十六进制。
@@ -73,7 +73,7 @@ A Windows Graphics Capture HDR screenshot utility. It captures a display or wind
 
 ## Features
 
-- **PixPin-style trigger**: global hotkey (default `Ctrl+Shift+A`) or tray double-click; auto-detects the window under the cursor, or drag to select any region; the selection can then be moved and resized.
+- **Quick start**: global hotkey (default `Ctrl+Shift+A`) or tray double-click; auto-detects the window under the cursor, or drag to select any region; the selection can then be moved and resized.
 - **True HDR live preview**: the frozen frame is presented through an FP16 swap chain, so HDR brightness shows as-is while the area outside the selection is dimmed; SDR content matches the desktop exactly.
 - **Annotation toolbar**: pen, arrow, shape (rectangle/ellipse), mosaic and a pixel-level eraser, each with color/thickness sub-options; `Ctrl+Z` to undo. Annotations are composited into the HDR frame in linear light on completion, preserving full HDR precision.
 - **Magnifier loupe**: pixel grid, coordinates and the color under the cursor; `C` copies the color value, `Shift` toggles RGB/hex.
