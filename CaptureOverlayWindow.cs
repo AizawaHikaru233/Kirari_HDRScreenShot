@@ -33,6 +33,9 @@ internal sealed record OverlayCaptureResult(HdrFrame Frame, string? SavePath, bo
 internal sealed class CaptureOverlayWindow : Window
 {
     private const double DragThreshold = 5;
+    // Smaller than DragThreshold: it only needs to filter click jitter and the synthetic
+    // MouseMove from mouse capture, while keeping fine border adjustments possible.
+    private const double SelectionDragThreshold = 2;
 
     private enum OverlayMode { Selecting, Editing, Scrolling }
     private enum Tool { None, Pen, Arrow, Shape, Mosaic, Eraser }
@@ -112,6 +115,7 @@ internal sealed class CaptureOverlayWindow : Window
     private Int32Rect _selection;
     private ResizeAnchor _dragAnchor;
     private bool _movingSelection;
+    private bool _selectionDragStarted;
     private Int32Rect _dragStartSelection;
     private readonly List<WpfRectangle> _handles = new();
 
@@ -479,6 +483,7 @@ internal sealed class CaptureOverlayWindow : Window
             {
                 _dragAnchor = anchor;
                 _movingSelection = anchor == ResizeAnchor.None;
+                _selectionDragStarted = false;
                 _dragStartSelection = _selection;
                 _mouseDownPoint = position;
                 _mousePressed = true;
@@ -524,7 +529,7 @@ internal sealed class CaptureOverlayWindow : Window
                     _dragging = true;
                 if (_dragging)
                 {
-                    _targetFrameRect = OverlayToFrame(ClampToImage(NormalizeRect(_mouseDownPoint, position)));
+                    _targetFrameRect = DragPixelRect(_mouseDownPoint, position);
                     RefreshVisuals();
                 }
                 return;
@@ -554,6 +559,14 @@ internal sealed class CaptureOverlayWindow : Window
 
         if (_movingSelection || _dragAnchor != ResizeAnchor.None)
         {
+            // A plain click must not adjust the selection: mouse capture synthesizes a
+            // MouseMove at the press position and real clicks carry ~1px jitter, so the
+            // gesture only becomes a drag after a small deliberate movement.
+            if (!_selectionDragStarted &&
+                Math.Abs(position.X - _mouseDownPoint.X) <= SelectionDragThreshold &&
+                Math.Abs(position.Y - _mouseDownPoint.Y) <= SelectionDragThreshold)
+                return;
+            _selectionDragStarted = true;
             HandleSelectionDrag(position);
             return;
         }
@@ -580,7 +593,7 @@ internal sealed class CaptureOverlayWindow : Window
         if (_mode == OverlayMode.Selecting)
         {
             Int32Rect? chosen = _dragging
-                ? OverlayToFrame(ClampToImage(NormalizeRect(_mouseDownPoint, position)))
+                ? DragPixelRect(_mouseDownPoint, position)
                 : _targetFrameRect;
             if (chosen is { Width: >= 2, Height: >= 2 } rect)
                 EnterEditMode(rect);
@@ -1015,6 +1028,7 @@ internal sealed class CaptureOverlayWindow : Window
         const int minSize = 8;
         var deltaX = (position.X - _mouseDownPoint.X) / _imageBounds.Width * _frame.Width;
         var deltaY = (position.Y - _mouseDownPoint.Y) / _imageBounds.Height * _frame.Height;
+        var cursor = OverlayPointToFrame(position);
         var start = _dragStartSelection;
         int left = start.X, top = start.Y, right = start.X + start.Width, bottom = start.Y + start.Height;
 
@@ -1027,14 +1041,24 @@ internal sealed class CaptureOverlayWindow : Window
         }
         else
         {
+            // Dragged borders attach to the pixel under the cursor (inclusive for right and
+            // bottom). Absolute attachment — rather than delta movement plus an edge snap —
+            // keeps every border position reachable: the cursor stops at the last pixel
+            // row/column, and a preserved grab offset would otherwise trap the border short
+            // of the frame edge. Clamp bounds stay non-inverted for selections thinner than
+            // minSize (Math.Clamp throws when min > max).
+            // A selection already thinner than minSize may only grow (the bound falls back to
+            // its current border), never get dragged to the frame edge by the clamp alone.
+            var px = PixelUnder(cursor.X);
+            var py = PixelUnder(cursor.Y);
             if (_dragAnchor.HasFlag(ResizeAnchor.Left))
-                left = (int)Math.Round(Math.Clamp(start.X + deltaX, 0, right - minSize));
+                left = Math.Clamp(px, 0, Math.Max(start.X, right - minSize));
             if (_dragAnchor.HasFlag(ResizeAnchor.Right))
-                right = (int)Math.Round(Math.Clamp(start.X + start.Width + deltaX, left + minSize, _frame.Width));
+                right = Math.Clamp(px + 1, Math.Min(start.X + start.Width, left + minSize), _frame.Width);
             if (_dragAnchor.HasFlag(ResizeAnchor.Top))
-                top = (int)Math.Round(Math.Clamp(start.Y + deltaY, 0, bottom - minSize));
+                top = Math.Clamp(py, 0, Math.Max(start.Y, bottom - minSize));
             if (_dragAnchor.HasFlag(ResizeAnchor.Bottom))
-                bottom = (int)Math.Round(Math.Clamp(start.Y + start.Height + deltaY, top + minSize, _frame.Height));
+                bottom = Math.Clamp(py + 1, Math.Min(start.Y + start.Height, top + minSize), _frame.Height);
         }
         ApplySelectionBounds(new Int32Rect(left, top, right - left, bottom - top));
     }
@@ -1472,7 +1496,7 @@ internal sealed class CaptureOverlayWindow : Window
             Tool.Shape when Distance(_mouseDownPoint, position) > DragThreshold =>
                 new EllipseAnnotation(FrameRectOf(_mouseDownPoint, position), _inkStyles[Tool.Shape].Color, _inkStyles[Tool.Shape].WidthDip * scale),
             Tool.Mosaic when Distance(_mouseDownPoint, position) > DragThreshold =>
-                new MosaicAnnotation(OverlayToFrame(ClampToImage(NormalizeRect(_mouseDownPoint, position))), _mosaicBlockFramePx),
+                new MosaicAnnotation(DragPixelRect(_mouseDownPoint, position, _selection), _mosaicBlockFramePx),
             _ => null,
         };
         _livePoints = null;
@@ -1606,8 +1630,8 @@ internal sealed class CaptureOverlayWindow : Window
     private void UpdateMagnifier(WpfPoint position)
     {
         var framePoint = OverlayPointToFrame(position);
-        var frameX = Math.Clamp((int)framePoint.X, 0, _frame.Width - 1);
-        var frameY = Math.Clamp((int)framePoint.Y, 0, _frame.Height - 1);
+        var frameX = Math.Clamp(PixelUnder(framePoint.X), 0, _frame.Width - 1);
+        var frameY = Math.Clamp(PixelUnder(framePoint.Y), 0, _frame.Height - 1);
 
         var half = MagnifierSourcePixels / 2;
         for (var y = 0; y < MagnifierSourcePixels; y++)
@@ -2081,6 +2105,38 @@ internal sealed class CaptureOverlayWindow : Window
         return new WpfPoint(
             (point.X - _imageBounds.Left) / _imageBounds.Width * _frame.Width,
             (point.Y - _imageBounds.Top) / _imageBounds.Height * _frame.Height);
+    }
+
+    private Int32Rect DragPixelRect(WpfPoint a, WpfPoint b) =>
+        DragPixelRect(a, b, new Int32Rect(0, 0, _frame.Width, _frame.Height));
+
+    /// <summary>
+    /// The frame pixel containing coordinate <paramref name="value"/>. The epsilon absorbs the
+    /// floating-point noise of the DIP round-trip — at fractional DPI scales an integer device
+    /// pixel can land a hair below the integer, and plain flooring would then drop a whole
+    /// pixel — without breaking containing-pixel semantics for genuinely fractional
+    /// (stylus/touch) positions.
+    /// </summary>
+    private static int PixelUnder(double value) => (int)Math.Floor(value + 1e-6);
+
+    /// <summary>
+    /// Converts a drag gesture to frame pixels treating both endpoints as pixels under the
+    /// cursor (inclusive), clamped into <paramref name="bounds"/>. The cursor's coordinates
+    /// top out at the last pixel (Width-1 / Height-1), so an exclusive geometric mapping would
+    /// make the outermost row and column unselectable when dragging to the screen edge.
+    /// </summary>
+    private Int32Rect DragPixelRect(WpfPoint a, WpfPoint b, Int32Rect bounds)
+    {
+        var pa = OverlayPointToFrame(a);
+        var pb = OverlayPointToFrame(b);
+        var maxX = Math.Max(bounds.X, bounds.X + bounds.Width - 1);
+        var maxY = Math.Max(bounds.Y, bounds.Y + bounds.Height - 1);
+        var ax = Math.Clamp(PixelUnder(pa.X), bounds.X, maxX);
+        var ay = Math.Clamp(PixelUnder(pa.Y), bounds.Y, maxY);
+        var bx = Math.Clamp(PixelUnder(pb.X), bounds.X, maxX);
+        var by = Math.Clamp(PixelUnder(pb.Y), bounds.Y, maxY);
+        return new Int32Rect(Math.Min(ax, bx), Math.Min(ay, by),
+            Math.Abs(ax - bx) + 1, Math.Abs(ay - by) + 1);
     }
 
     private Int32Rect OverlayToFrame(Rect rect)
