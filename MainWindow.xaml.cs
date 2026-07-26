@@ -30,6 +30,7 @@ public partial class MainWindow : Window, IDisposable
     public void StartBackground()
     {
         _settings = AppSettings.Load();
+        L.Apply(_settings.Language);
         var hwnd = new WindowInteropHelper(this).EnsureHandle();
         _source = HwndSource.FromHwnd(hwnd);
         _source?.AddHook(WndProc);
@@ -41,17 +42,23 @@ public partial class MainWindow : Window, IDisposable
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.ApplicationIdle, MemoryTrimmer.Trim);
     }
 
-    private void CreateTrayIcon()
+    private Forms.ContextMenuStrip BuildTrayMenu()
     {
         var menu = new Forms.ContextMenuStrip();
-        _captureMenuItem = new Forms.ToolStripMenuItem("截图", null, (_, _) => _ = CaptureInteractiveAsync());
+        _captureMenuItem = new Forms.ToolStripMenuItem(L.T("截图", "Capture"), null, (_, _) => _ = CaptureInteractiveAsync());
         menu.Items.Add(_captureMenuItem);
-        menu.Items.Add("选择窗口/显示器（系统选择器）", null, (_, _) => _ = CaptureWithPickerAsync());
+        menu.Items.Add(L.T("选择窗口/显示器（系统选择器）", "Pick window/display (system picker)"), null, (_, _) => _ = CaptureWithPickerAsync());
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("设置…", null, (_, _) => OpenSettings());
-        menu.Items.Add("打开保存目录", null, (_, _) => OpenOutputDirectory());
+        menu.Items.Add(L.T("设置…", "Settings…"), null, (_, _) => OpenSettings());
+        menu.Items.Add(L.T("打开保存目录", "Open save folder"), null, (_, _) => OpenOutputDirectory());
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("退出", null, (_, _) => RequestExit());
+        menu.Items.Add(L.T("退出", "Exit"), null, (_, _) => RequestExit());
+        return menu;
+    }
+
+    private void CreateTrayIcon()
+    {
+        var menu = BuildTrayMenu();
         _trayIcon = new Forms.NotifyIcon
         {
             Icon = (Environment.ProcessPath is { } exePath ? System.Drawing.Icon.ExtractAssociatedIcon(exePath) : null)
@@ -80,8 +87,10 @@ public partial class MainWindow : Window, IDisposable
             RegisterHotKey(hwnd, CaptureHotkeyId, hotkey.Modifiers | HotkeyConfig.ModNoRepeat, hotkey.VirtualKey);
 
         if (!_hotkeyRegistered)
-            Notify("Kirari 快捷键不可用",
-                $"{hotkey.Describe()} 可能已被占用，请在设置中更换，或使用托盘菜单截图。", Forms.ToolTipIcon.Warning);
+            Notify(L.T("Kirari 快捷键不可用", "Kirari hotkey unavailable"),
+                L.T($"{hotkey.Describe()} 可能已被占用，请在设置中更换，或使用托盘菜单截图。",
+                    $"{hotkey.Describe()} may be taken by another app. Change it in Settings, or capture from the tray menu."),
+                Forms.ToolTipIcon.Warning);
 
         UpdateTrayText();
     }
@@ -90,9 +99,10 @@ public partial class MainWindow : Window, IDisposable
     {
         var hotkeyText = _settings.CaptureHotkey.Describe();
         if (_captureMenuItem is not null)
-            _captureMenuItem.Text = $"截图  ({hotkeyText})";
+            _captureMenuItem.Text = $"{L.T("截图", "Capture")}  ({hotkeyText})";
         if (_trayIcon is not null)
-            _trayIcon.Text = $"Kirari\n{hotkeyText}: 截图（自动识别窗口 / 框选）";
+            _trayIcon.Text = L.T($"Kirari\n{hotkeyText}: 截图（自动识别窗口 / 框选）",
+                $"Kirari\n{hotkeyText}: capture (window detect / region)");
     }
 
     private nint WndProc(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
@@ -139,13 +149,14 @@ public partial class MainWindow : Window, IDisposable
                 var hdrPng = await Task.Run(() => HdrPngExporter.Encode(result.Frame, fast: true).Data);
                 ClipboardWriter.CopySdr(result.Frame, sdrWhiteScale, hdrPng);
                 Notify("Kirari", savePath is null
-                    ? "已复制到剪贴板（SDR 位图 + HDR PNG）"
-                    : $"已保存 {Path.GetFileName(savePath)} 并复制到剪贴板");
+                    ? L.T("已复制到剪贴板（SDR 位图 + HDR PNG）", "Copied to clipboard (SDR bitmap + HDR PNG)")
+                    : L.T($"已保存 {Path.GetFileName(savePath)} 并复制到剪贴板",
+                        $"Saved {Path.GetFileName(savePath)} and copied to clipboard"));
             }
         }
         catch (Exception ex)
         {
-            Notify("Kirari 失败", ex.Message, Forms.ToolTipIcon.Error);
+            Notify(L.T("Kirari 失败", "Kirari failed"), ex.Message, Forms.ToolTipIcon.Error);
         }
         finally
         {
@@ -173,7 +184,7 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
-            Notify("Kirari 失败", ex.Message, Forms.ToolTipIcon.Error);
+            Notify(L.T("Kirari 失败", "Kirari failed"), ex.Message, Forms.ToolTipIcon.Error);
         }
         finally
         {
@@ -191,7 +202,7 @@ public partial class MainWindow : Window, IDisposable
     {
         var result = await Task.Run(() => CaptureExporter.Export(frame, outputPath, _settings.OutputFormat, _settings.SaveSdrCopy));
         if (notify)
-            Notify("Kirari", $"已保存 {Path.GetFileName(result.MainPath)}");
+            Notify("Kirari", L.T($"已保存 {Path.GetFileName(result.MainPath)}", $"Saved {Path.GetFileName(result.MainPath)}"));
     }
 
     private void OpenSettings()
@@ -206,10 +217,16 @@ public partial class MainWindow : Window, IDisposable
         }
         catch (Exception ex)
         {
-            Notify("Kirari 设置未保存", ex.Message, Forms.ToolTipIcon.Warning);
+            Notify(L.T("Kirari 设置未保存", "Kirari settings not saved"), ex.Message, Forms.ToolTipIcon.Warning);
         }
+        L.Apply(_settings.Language);
         if (_trayIcon is not null)
+        {
             _trayIcon.Visible = !_settings.HideTrayIcon;
+            var oldMenu = _trayIcon.ContextMenuStrip;
+            _trayIcon.ContextMenuStrip = BuildTrayMenu();
+            oldMenu?.Dispose();
+        }
         RegisterConfiguredHotkey();
     }
 

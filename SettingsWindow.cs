@@ -75,8 +75,10 @@ internal sealed class SettingsWindow : Window
     private readonly ToggleSwitch _hideTray;
     private readonly StackPanel _formatChips = new() { Orientation = Orientation.Horizontal };
     private readonly StackPanel _themeChips = new() { Orientation = Orientation.Horizontal };
+    private readonly StackPanel _languageChips = new() { Orientation = Orientation.Horizontal };
     private string _format;
     private string _theme;
+    private string _language;
 
     public AppSettings Result { get; private set; }
     public bool AutoStartEnabled { get; private set; }
@@ -87,6 +89,7 @@ internal sealed class SettingsWindow : Window
         Result = current;
         _format = current.OutputFormat;
         _theme = current.Theme;
+        _language = current.Language;
         _dark = ThemeService.IsDark(ThemeService.Parse(current.Theme));
 
         _textPrimary = new SolidColorBrush(_dark ? WpfColor.FromRgb(0xF2, 0xF3, 0xF5) : WpfColor.FromRgb(0x1A, 0x1A, 0x1A));
@@ -95,7 +98,7 @@ internal sealed class SettingsWindow : Window
         _cardBorder = new SolidColorBrush(_dark ? WpfColor.FromRgb(0x3C, 0x3F, 0x45) : WpfColor.FromRgb(0xE5, 0xE7, 0xEB));
         _fieldBg = new SolidColorBrush(_dark ? WpfColor.FromRgb(0x23, 0x25, 0x29) : WpfColor.FromRgb(0xFF, 0xFF, 0xFF));
 
-        Title = "Kirari 设置";
+        Title = L.T("Kirari 设置", "Kirari Settings");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
         Background = Brushes.Transparent;
@@ -117,8 +120,9 @@ internal sealed class SettingsWindow : Window
 
         RebuildFormatChips();
         RebuildThemeChips();
+        RebuildLanguageChips();
 
-        var browse = FlatButton("浏览…", accent: false);
+        var browse = FlatButton(L.T("浏览…", "Browse…"), accent: false);
         browse.Margin = new Thickness(8, 0, 0, 0);
         browse.Click += OnBrowse;
         var directoryRow = new DockPanel { LastChildFill = true };
@@ -126,9 +130,9 @@ internal sealed class SettingsWindow : Window
         directoryRow.Children.Add(browse);
         directoryRow.Children.Add(Rounded(_directoryBox));
 
-        var save = FlatButton("保存", accent: true);
+        var save = FlatButton(L.T("保存", "Save"), accent: true);
         save.Click += OnSave;
-        var cancel = FlatButton("取消", accent: false);
+        var cancel = FlatButton(L.T("取消", "Cancel"), accent: false);
         cancel.Margin = new Thickness(8, 0, 0, 0);
         cancel.Click += (_, _) => Close();
         var buttons = new StackPanel
@@ -142,23 +146,33 @@ internal sealed class SettingsWindow : Window
 
         var content = new StackPanel { Margin = new Thickness(22) };
         content.Children.Add(BuildTitleBar());
-        content.Children.Add(Card("快捷键",
-            Label("触发截图（点击输入框后按下组合键）"),
+        content.Children.Add(Card(L.T("快捷键", "Hotkey"),
+            Label(L.T("触发截图（点击输入框后按下组合键）", "Capture trigger (click the box, then press the combination)")),
             Rounded(_hotkeyBox)));
-        content.Children.Add(Card("保存",
-            Label("输出格式"),
+        content.Children.Add(Card(L.T("保存", "Saving"),
+            Label(L.T("输出格式", "Output format")),
             _formatChips,
-            Label("保存目录（留空使用 图片\\HDR Capture）"),
+            Label(L.T("保存目录（留空使用 图片\\HDR Capture）", "Save folder (empty = Pictures\\HDR Capture)")),
             directoryRow,
-            Label("文件名格式（{…} 内为日期格式；SDR 不加后缀，HDR 自动加 _HDR）"),
+            Label(L.T("文件名格式（{…} 内为日期格式；SDR 不加后缀，HDR 自动加 _HDR）",
+                "File name pattern ({…} = date format; SDR plain, HDR gets _HDR)")),
             Rounded(_patternBox),
-            ToggleRow("完成时同时保存文件", "按 Enter 复制到剪贴板的同时，也将文件写入保存目录", _saveOnFinish),
-            ToggleRow("HDR 截图时额外保存 SDR PNG", "输出 name_HDR.png 时同时生成 name.png 普通截图", _saveSdrCopy)));
-        content.Children.Add(Card("常规",
-            Label("界面主题（截图工具栏同步生效）"),
+            ToggleRow(L.T("完成时同时保存文件", "Also save a file on finish"),
+                L.T("按 Enter 复制到剪贴板的同时，也将文件写入保存目录",
+                    "Pressing Enter copies to the clipboard and also writes a file to the save folder"), _saveOnFinish),
+            ToggleRow(L.T("HDR 截图时额外保存 SDR PNG", "Save an SDR PNG alongside HDR captures"),
+                L.T("输出 name_HDR.png 时同时生成 name.png 普通截图",
+                    "Writing name_HDR.png also produces a plain name.png"), _saveSdrCopy)));
+        content.Children.Add(Card(L.T("常规", "General"),
+            Label(L.T("界面主题（截图工具栏同步生效）", "Theme (capture toolbar follows)")),
             _themeChips,
-            ToggleRow("开机自启", "登录 Windows 后自动在后台运行", _autoStart),
-            ToggleRow("隐藏托盘图标", "隐藏后仅快捷键可用；再次运行程序可重新打开设置", _hideTray)));
+            Label(L.T("语言 / Language", "Language / 语言")),
+            _languageChips,
+            ToggleRow(L.T("开机自启", "Start with Windows"),
+                L.T("登录 Windows 后自动在后台运行", "Run silently in the background after signing in"), _autoStart),
+            ToggleRow(L.T("隐藏托盘图标", "Hide tray icon"),
+                L.T("隐藏后仅快捷键可用；再次运行程序可重新打开设置",
+                    "Only the hotkey remains; launch the app again to reopen settings"), _hideTray)));
         content.Children.Add(buttons);
 
         Content = new Border
@@ -186,9 +200,17 @@ internal sealed class SettingsWindow : Window
     private void RebuildThemeChips()
     {
         _themeChips.Children.Clear();
-        AddChip(_themeChips, "自适应", "auto", _theme, value => { _theme = value; RebuildThemeChips(); });
-        AddChip(_themeChips, "浅色", "light", _theme, value => { _theme = value; RebuildThemeChips(); });
-        AddChip(_themeChips, "深色", "dark", _theme, value => { _theme = value; RebuildThemeChips(); });
+        AddChip(_themeChips, L.T("自适应", "Auto"), "auto", _theme, value => { _theme = value; RebuildThemeChips(); });
+        AddChip(_themeChips, L.T("浅色", "Light"), "light", _theme, value => { _theme = value; RebuildThemeChips(); });
+        AddChip(_themeChips, L.T("深色", "Dark"), "dark", _theme, value => { _theme = value; RebuildThemeChips(); });
+    }
+
+    private void RebuildLanguageChips()
+    {
+        _languageChips.Children.Clear();
+        AddChip(_languageChips, L.T("自动", "Auto"), "auto", _language, value => { _language = value; RebuildLanguageChips(); });
+        AddChip(_languageChips, "中文", "zh", _language, value => { _language = value; RebuildLanguageChips(); });
+        AddChip(_languageChips, "English", "en", _language, value => { _language = value; RebuildLanguageChips(); });
     }
 
     private void AddChip(StackPanel host, string text, string value, string current, Action<string> pick)
@@ -220,7 +242,7 @@ internal sealed class SettingsWindow : Window
     {
         var title = new TextBlock
         {
-            Text = "Kirari 设置",
+            Text = L.T("Kirari 设置", "Kirari Settings"),
             FontSize = 17,
             FontWeight = FontWeights.SemiBold,
             Foreground = _textPrimary,
@@ -383,8 +405,10 @@ internal sealed class SettingsWindow : Window
     {
         if (!_hotkey.IsValid)
         {
-            MessageBox.Show(this, "快捷键至少需要一个修饰键（Ctrl/Alt/Shift/Win）加一个按键。", "Kirari",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this,
+                L.T("快捷键至少需要一个修饰键（Ctrl/Alt/Shift/Win）加一个按键。",
+                    "The hotkey needs at least one modifier (Ctrl/Alt/Shift/Win) plus a key."),
+                "Kirari", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -398,6 +422,7 @@ internal sealed class SettingsWindow : Window
             SaveSdrCopy = _saveSdrCopy.IsOn,
             HideTrayIcon = _hideTray.IsOn,
             Theme = _theme,
+            Language = _language,
         };
         AutoStartEnabled = _autoStart.IsOn;
         DialogResult = true;

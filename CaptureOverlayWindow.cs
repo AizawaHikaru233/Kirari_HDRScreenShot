@@ -308,7 +308,8 @@ internal sealed class CaptureOverlayWindow : Window
             IsHitTestVisible = false,
             Child = new TextBlock
             {
-                Text = "移动鼠标高亮窗口  ·  单击截取窗口  ·  拖拽框选任意区域  ·  Esc / 右键取消",
+                Text = L.T("移动鼠标高亮窗口  ·  单击截取窗口  ·  拖拽框选任意区域  ·  Esc / 右键取消",
+                    "Hover to highlight a window  ·  Click to capture it  ·  Drag to select a region  ·  Esc / right-click to cancel"),
                 Foreground = _chrome.Text,
                 FontSize = 14,
             },
@@ -618,14 +619,14 @@ internal sealed class CaptureOverlayWindow : Window
         for (var y = 0; y < selection.Height; y++)
             Buffer.BlockCopy(_previewBgra, ((selection.Y + y) * _frame.Width + selection.X) * 4,
                 crop, y * selection.Width * 4, selection.Width * 4);
-        ShowToast("识别中…", sticky: true);
+        ShowToast(L.T("识别中…", "Recognizing…"), sticky: true);
         try
         {
             var text = await OcrService.RecognizeAsync(crop, selection.Width, selection.Height);
             if (!IsVisible) return;
             if (string.IsNullOrWhiteSpace(text))
             {
-                ShowToast("未识别到文字");
+                ShowToast(L.T("未识别到文字", "No text found"));
                 return;
             }
             try
@@ -634,7 +635,7 @@ internal sealed class CaptureOverlayWindow : Window
             }
             catch
             {
-                ShowToast("剪贴板被占用，复制失败");
+                ShowToast(L.T("剪贴板被占用，复制失败", "Clipboard is busy; copy failed"));
                 return;
             }
             // Copied successfully: abort the capture outright — no completion pipeline.
@@ -642,7 +643,7 @@ internal sealed class CaptureOverlayWindow : Window
         }
         catch (Exception ex)
         {
-            if (IsVisible) ShowToast($"识别失败：{ex.Message}");
+            if (IsVisible) ShowToast(L.T($"识别失败：{ex.Message}", $"Recognition failed: {ex.Message}"));
         }
     }
 
@@ -700,7 +701,8 @@ internal sealed class CaptureOverlayWindow : Window
         }
         if (target is null)
         {
-            MessageBox.Show(this, "选区下没有可滚动的目标窗口。", "长截图", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, L.T("选区下没有可滚动的目标窗口。", "No scrollable window under the selection."),
+                L.T("长截图", "Long screenshot"), MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -711,7 +713,8 @@ internal sealed class CaptureOverlayWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"无法捕获目标窗口：{ex.Message}", "长截图", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, L.T($"无法捕获目标窗口：{ex.Message}", $"Cannot capture the target window: {ex.Message}"),
+                L.T("长截图", "Long screenshot"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -725,7 +728,8 @@ internal sealed class CaptureOverlayWindow : Window
         if (regionW < 50 || regionH < 80)
         {
             session.Dispose();
-            MessageBox.Show(this, "选区太小，无法进行滚动拼接。", "长截图", MessageBoxButton.OK, MessageBoxImage.Information);
+            MessageBox.Show(this, L.T("选区太小，无法进行滚动拼接。", "The selection is too small for scroll stitching."),
+                L.T("长截图", "Long screenshot"), MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
@@ -733,7 +737,8 @@ internal sealed class CaptureOverlayWindow : Window
         if (baseline is null)
         {
             session.Dispose();
-            MessageBox.Show(this, "未能从目标窗口获取画面。", "长截图", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(this, L.T("未能从目标窗口获取画面。", "Could not get frames from the target window."),
+                L.T("长截图", "Long screenshot"), MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -802,7 +807,8 @@ internal sealed class CaptureOverlayWindow : Window
                     AppendScrollSegment(segment, newRows);
                     _scrollLastGray = gray;
                     if (_scrollStatus is not null)
-                        _scrollStatus.Text = $"滚动截取中…  已拼接 {_scrollTotalRows} px";
+                        _scrollStatus.Text = L.T($"滚动截取中…  已拼接 {_scrollTotalRows} px",
+                            $"Scrolling…  stitched {_scrollTotalRows} px");
                 }
                 // Memory cap: HDR rows are 8 bytes per pixel.
                 if ((long)_scrollTotalRows * _scrollWidth * 8 > 512L * 1024 * 1024 || _scrollTotalRows > 30000)
@@ -923,7 +929,7 @@ internal sealed class CaptureOverlayWindow : Window
             _scrollStatus = new TextBlock { Foreground = _chrome.Text, FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
             var stop = new Button
             {
-                Content = "结束并保存",
+                Content = L.T("结束并保存", "Finish and save"),
                 Margin = new Thickness(12, 0, 0, 0),
                 Padding = new Thickness(12, 4, 12, 4),
             };
@@ -942,7 +948,7 @@ internal sealed class CaptureOverlayWindow : Window
             };
             _canvas.Children.Add(_scrollPanel);
         }
-        _scrollStatus!.Text = "滚动截取中…";
+        _scrollStatus!.Text = L.T("滚动截取中…", "Scrolling…");
         _scrollPanel.Visibility = Visibility.Visible;
         _scrollPanel.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var selection = FrameToOverlay(_selection);
@@ -1542,7 +1548,7 @@ internal sealed class CaptureOverlayWindow : Window
 
     // ---------------------------------------------------------------- magnifier / color picker
 
-    private const string DefaultMagnifierHint = "C 复制颜色 · Shift 切换格式";
+    private static string DefaultMagnifierHint => L.T("C 复制颜色 · Shift 切换格式", "C copy color · Shift toggle format");
 
     private (Border Panel, TextBlock Pos, TextBlock Color, TextBlock Hint) BuildMagnifier(WriteableBitmap bitmap)
     {
@@ -1659,7 +1665,7 @@ internal sealed class CaptureOverlayWindow : Window
         try
         {
             Clipboard.SetText(value);
-            _magnifierHint.Text = $"已复制 {value}";
+            _magnifierHint.Text = L.T($"已复制 {value}", $"Copied {value}");
             _hintReset.Stop();
             _hintReset.Start();
         }
@@ -1674,19 +1680,19 @@ internal sealed class CaptureOverlayWindow : Window
     private Border BuildToolbar()
     {
         var toolsRow = new StackPanel { Orientation = Orientation.Horizontal };
-        AddToolButton(toolsRow, Tool.Pen, "\uE70F", "涂鸦", mdl2: true);
-        AddToolButton(toolsRow, Tool.Arrow, "↗", "箭头", mdl2: false);
-        AddToolButton(toolsRow, Tool.Shape, "▭", "框选（矩形 / 椭圆）", mdl2: false);
-        AddToolButton(toolsRow, Tool.Mosaic, "▦", "马赛克", mdl2: false);
-        AddToolButton(toolsRow, Tool.Eraser, "\uE75C", "橡皮擦（按住拖动擦除）", mdl2: true);
+        AddToolButton(toolsRow, Tool.Pen, "\uE70F", L.T("涂鸦", "Pen"), mdl2: true);
+        AddToolButton(toolsRow, Tool.Arrow, "↗", L.T("箭头", "Arrow"), mdl2: false);
+        AddToolButton(toolsRow, Tool.Shape, "▭", L.T("框选（矩形 / 椭圆）", "Shape (rectangle / ellipse)"), mdl2: false);
+        AddToolButton(toolsRow, Tool.Mosaic, "▦", L.T("马赛克", "Mosaic"), mdl2: false);
+        AddToolButton(toolsRow, Tool.Eraser, "\uE75C", L.T("橡皮擦（按住拖动擦除）", "Eraser (hold and drag)"), mdl2: true);
         AddSeparator(toolsRow);
-        AddActionButton(toolsRow, ScissorsIcon(), "长截图（自动滚动拼接）", StartScrollCapture);
-        AddActionButton(toolsRow, OcrIcon(), "文字识别（OCR）", RunOcr);
+        AddActionButton(toolsRow, ScissorsIcon(), L.T("长截图（自动滚动拼接）", "Long screenshot (auto-scroll stitch)"), StartScrollCapture);
+        AddActionButton(toolsRow, OcrIcon(), L.T("文字识别（OCR）", "Text recognition (OCR)"), RunOcr);
         AddSeparator(toolsRow);
-        AddActionButton(toolsRow, "\uE7A7", "撤销 (Ctrl+Z)", Undo, mdl2: true);
-        AddActionButton(toolsRow, "\uE74E", "另存为… (Ctrl+S)", SaveAs, mdl2: true);
-        AddActionButton(toolsRow, "\uE73E", "完成：复制到剪贴板 (Enter / 双击)", FinishToClipboard, mdl2: true, accent: true);
-        AddActionButton(toolsRow, "\uE711", "取消 (Esc)", Cancel, mdl2: true);
+        AddActionButton(toolsRow, "\uE7A7", L.T("撤销 (Ctrl+Z)", "Undo (Ctrl+Z)"), Undo, mdl2: true);
+        AddActionButton(toolsRow, "\uE74E", L.T("另存为… (Ctrl+S)", "Save as… (Ctrl+S)"), SaveAs, mdl2: true);
+        AddActionButton(toolsRow, "\uE73E", L.T("完成：复制到剪贴板 (Enter / 双击)", "Finish: copy to clipboard (Enter / double-click)"), FinishToClipboard, mdl2: true, accent: true);
+        AddActionButton(toolsRow, "\uE711", L.T("取消 (Esc)", "Cancel (Esc)"), Cancel, mdl2: true);
 
         return new Border
         {
@@ -1841,10 +1847,10 @@ internal sealed class CaptureOverlayWindow : Window
                 break;
             case Tool.Mosaic:
                 AddSizeOptions(MosaicBlocksFramePx.Select(static block => (double)block).ToArray(),
-                    _mosaicBlockFramePx, value => _mosaicBlockFramePx = (int)value, "块大小", square: true);
+                    _mosaicBlockFramePx, value => _mosaicBlockFramePx = (int)value, L.T("块大小", "Block size"), square: true);
                 break;
             case Tool.Eraser:
-                AddSizeOptions(EraserRadiiDip, _eraserRadiusDip, value => _eraserRadiusDip = value, "橡皮大小", square: false);
+                AddSizeOptions(EraserRadiiDip, _eraserRadiusDip, value => _eraserRadiusDip = value, L.T("橡皮大小", "Eraser size"), square: false);
                 break;
             default:
                 _optionsPopup.Visibility = Visibility.Collapsed;
@@ -1855,7 +1861,7 @@ internal sealed class CaptureOverlayWindow : Window
 
     private void AddShapeKindOptions()
     {
-        foreach (var (kind, glyph, tooltip) in new[] { (ShapeKind.Rect, "▭", "矩形"), (ShapeKind.Ellipse, "◯", "椭圆") })
+        foreach (var (kind, glyph, tooltip) in new[] { (ShapeKind.Rect, "▭", L.T("矩形", "Rectangle")), (ShapeKind.Ellipse, "◯", L.T("椭圆", "Ellipse")) })
         {
             var isActive = _shapeKind == kind;
             var button = new Border
@@ -1914,7 +1920,7 @@ internal sealed class CaptureOverlayWindow : Window
                 CornerRadius = new CornerRadius(4),
                 Margin = new Thickness(1, 0, 1, 0),
                 Background = isActive ? _chrome.ActiveBg : Brushes.Transparent,
-                ToolTip = $"粗细 {width:0.#}",
+                ToolTip = L.T($"粗细 {width:0.#}", $"Width {width:0.#}"),
                 Child = new WpfEllipse
                 {
                     Width = 4 + width * 1.6,

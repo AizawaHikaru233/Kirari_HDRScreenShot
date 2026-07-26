@@ -49,6 +49,8 @@ internal sealed class AppSettings
     public string FileNamePattern { get; set; } = "Kirari_{yyyyMMdd_HHmmss}";
     /// <summary>UI theme: "auto" (follow system), "light" or "dark".</summary>
     public string Theme { get; set; } = "auto";
+    /// <summary>UI language: "auto" (follow system), "zh" or "en".</summary>
+    public string Language { get; set; } = "auto";
     /// <summary>Finish (clipboard) also writes the HDR file to the output directory.</summary>
     public bool SaveFileOnFinish { get; set; }
     /// <summary>When exporting HDR PNG, also write an "_SDR.png" companion.</summary>
@@ -80,6 +82,8 @@ internal sealed class AppSettings
                         settings.OutputFormat = "hdrpng";
                     if (settings.Theme is not ("auto" or "light" or "dark"))
                         settings.Theme = "auto";
+                    if (settings.Language is not ("auto" or "zh" or "en"))
+                        settings.Language = "auto";
                     // Old default pattern migrates to the branded one.
                     if (settings.FileNamePattern == "HDR_{yyyyMMdd_HHmmss}")
                         settings.FileNamePattern = "Kirari_{yyyyMMdd_HHmmss}";
