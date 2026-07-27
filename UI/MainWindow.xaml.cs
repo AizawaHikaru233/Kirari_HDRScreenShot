@@ -131,27 +131,49 @@ public partial class MainWindow : Window, IDisposable
             var frame = await Task.Run(() =>
                 GraphicsCaptureService.CaptureOneFrame(item, captureCursor: false, hideBorder: true));
             frame = frame with { Display = await displayTask };
+            var outputFormat = GetOutputFormatForHdrAvailability(frame.Display?.HdrActive != false);
+            var sourceSdrWhiteNits = frame.Display?.SdrWhiteNits ?? DisplayInfo.GetSdrWhiteNits(monitor);
 
             var windows = WindowEnumerator.Enumerate(bounds, frame.Width, frame.Height, new WindowInteropHelper(this).Handle);
-            var sdrWhiteScale = (frame.Display?.SdrWhiteNits ?? DisplayInfo.GetSdrWhiteNits(monitor)) / HdrPngExporter.SdrWhiteNits;
+            // Keep the selection backdrop identical to the frozen desktop. The optional
+            // SDR-white normalization is applied only after the user has finished editing.
+            var sdrWhiteScale = sourceSdrWhiteNits / HdrPngExporter.SdrWhiteNits;
             var chrome = ChromeTheme.Resolve(ThemeService.IsDark(ThemeService.Parse(_settings.Theme)));
-            var result = CaptureOverlayWindow.Capture(frame, windows, bounds, sdrWhiteScale, _settings.ResolveOutputDirectory(), _settings.BuildFileName(), chrome);
+            var result = CaptureOverlayWindow.Capture(frame, windows, bounds, sdrWhiteScale, _settings.ResolveOutputDirectory(), _settings.BuildFileName(outputFormat), chrome);
             if (result is null) return;
+
+            var outputFrame = result.Frame;
+            if (_settings.NormalizeSdrWhite)
+                outputFrame = SdrWhiteNormalizer.NormalizeFrame(outputFrame, sourceSdrWhiteNits, _settings.ReferenceSdrWhiteNits,
+                    frame.Display?.MaxNits ?? _settings.ReferenceSdrWhiteNits);
+            var outputSdrWhiteScale = (outputFrame.Display?.SdrWhiteNits ?? sourceSdrWhiteNits) / HdrPngExporter.SdrWhiteNits;
 
             var savePath = result.SavePath;
             if (savePath is null && result.CopyToClipboard && _settings.SaveFileOnFinish)
-                savePath = Path.Combine(_settings.ResolveOutputDirectory(), _settings.BuildFileName());
+                savePath = Path.Combine(_settings.ResolveOutputDirectory(), _settings.BuildFileName(outputFormat));
 
             if (savePath is not null)
-                await ExportAsync(result.Frame, savePath, notify: !result.CopyToClipboard);
+                await ExportAsync(outputFrame, savePath, outputFormat, notify: !result.CopyToClipboard);
             if (result.CopyToClipboard)
             {
-                var hdrPng = await Task.Run(() => HdrPngExporter.Encode(result.Frame, fast: true).Data);
-                ClipboardWriter.CopySdr(result.Frame, sdrWhiteScale, hdrPng);
+                var (clipboardBytes, isPng) = await Task.Run(() => outputFormat switch
+                {
+                    "hdrpng" => (HdrPngExporter.Encode(outputFrame, fast: true).Data, true),
+                    "sdrpng" => (SdrExporter.EncodePng(outputFrame, outputSdrWhiteScale), true),
+                    "sdrjpg" => (SdrExporter.EncodeJpg(outputFrame, outputSdrWhiteScale), false),
+                    _ => throw new InvalidOperationException($"Unsupported output format: {outputFormat}"),
+                });
+                ClipboardWriter.Copy(outputFrame, outputSdrWhiteScale, clipboardBytes, isPng);
+                var clipboardDescription = outputFormat switch
+                {
+                    "hdrpng" => L.T("SDR 位图 + HDR PNG", "SDR bitmap + HDR PNG"),
+                    "sdrpng" => L.T("SDR 位图 + SDR PNG", "SDR bitmap + SDR PNG"),
+                    _ => L.T("SDR 位图 + SDR JPG", "SDR bitmap + SDR JPG"),
+                };
                 Notify("Kirari", savePath is null
-                    ? L.T("已复制到剪贴板（SDR 位图 + HDR PNG）", "Copied to clipboard (SDR bitmap + HDR PNG)")
-                    : L.T($"已保存 {Path.GetFileName(savePath)} 并复制到剪贴板",
-                        $"Saved {Path.GetFileName(savePath)} and copied to clipboard"));
+                    ? L.T($"已复制到剪贴板（{clipboardDescription}）", $"Copied to clipboard ({clipboardDescription})")
+                    : L.T($"已保存 {Path.GetFileName(savePath)} 并复制到剪贴板（{clipboardDescription}）",
+                        $"Saved {Path.GetFileName(savePath)} and copied to clipboard ({clipboardDescription})"));
             }
         }
         catch (Exception ex)
@@ -180,7 +202,9 @@ public partial class MainWindow : Window, IDisposable
             // GraphicsCaptureItem does not expose its source monitor, so Display stays null here
             // and the exporter falls back to content-derived mDCV metadata for this path.
             var frame = await Task.Run(() => GraphicsCaptureService.CaptureOneFrame(item, captureCursor: true));
-            await SaveFrameAsync(frame);
+            var (monitor, _) = NativeMethods.MonitorUnderCursor();
+            var outputFormat = GetOutputFormatForHdrAvailability(DisplayInfo.ForMonitor(monitor)?.HdrActive != false);
+            await SaveFrameAsync(frame, outputFormat);
         }
         catch (Exception ex)
         {
@@ -193,16 +217,25 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private async Task SaveFrameAsync(HdrFrame frame)
+    private async Task SaveFrameAsync(HdrFrame frame, string outputFormat)
     {
-        await ExportAsync(frame, Path.Combine(_settings.ResolveOutputDirectory(), _settings.BuildFileName()));
+        await ExportAsync(frame, Path.Combine(_settings.ResolveOutputDirectory(), _settings.BuildFileName(outputFormat)), outputFormat);
     }
 
-    private async Task ExportAsync(HdrFrame frame, string outputPath, bool notify = true)
+    private async Task ExportAsync(HdrFrame frame, string outputPath, string outputFormat, bool notify = true)
     {
-        var result = await Task.Run(() => CaptureExporter.Export(frame, outputPath, _settings.OutputFormat, _settings.SaveSdrCopy));
+        var result = await Task.Run(() => CaptureExporter.Export(frame, outputPath, outputFormat, _settings.SaveSdrCopy));
         if (notify)
             Notify("Kirari", L.T($"已保存 {Path.GetFileName(result.MainPath)}", $"Saved {Path.GetFileName(result.MainPath)}"));
+    }
+
+    private string GetOutputFormatForHdrAvailability(bool hdrAvailable)
+    {
+        if (!_settings.OutputFormat.Equals("hdrpng", StringComparison.OrdinalIgnoreCase) || hdrAvailable)
+            return _settings.OutputFormat;
+
+        Notify("Kirari", L.T("当前显示器未开启 HDR，已改用 SDR PNG", "HDR is disabled on this display; using SDR PNG instead."), Forms.ToolTipIcon.Warning);
+        return "sdrpng";
     }
 
     private void OpenSettings()

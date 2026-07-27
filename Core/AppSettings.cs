@@ -55,6 +55,10 @@ internal sealed class AppSettings
     public bool SaveFileOnFinish { get; set; }
     /// <summary>When exporting HDR PNG, also write an "_SDR.png" companion.</summary>
     public bool SaveSdrCopy { get; set; }
+    /// <summary>Normalize the captured HDR SDR-white level to a stable output reference.</summary>
+    public bool NormalizeSdrWhite { get; set; }
+    /// <summary>Target SDR white level used when <see cref="NormalizeSdrWhite"/> is enabled.</summary>
+    public float ReferenceSdrWhiteNits { get; set; } = 203f;
     public bool HideTrayIcon { get; set; }
 
     private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
@@ -80,10 +84,14 @@ internal sealed class AppSettings
                     // Legacy values (UltraHDR "jpg" / gain-map "png") normalize to HDR PNG.
                     if (settings.OutputFormat is not ("hdrpng" or "sdrpng" or "sdrjpg"))
                         settings.OutputFormat = "hdrpng";
+                    if (!settings.OutputFormat.Equals("hdrpng", StringComparison.OrdinalIgnoreCase))
+                        settings.SaveSdrCopy = false;
                     if (settings.Theme is not ("auto" or "light" or "dark"))
                         settings.Theme = "auto";
                     if (settings.Language is not ("auto" or "zh" or "en"))
                         settings.Language = "auto";
+                    if (!float.IsFinite(settings.ReferenceSdrWhiteNits) || settings.ReferenceSdrWhiteNits < 40f || settings.ReferenceSdrWhiteNits > 500f)
+                        settings.ReferenceSdrWhiteNits = 203f;
                     // Old default pattern migrates to the branded one.
                     if (settings.FileNamePattern == "HDR_{yyyyMMdd_HHmmss}")
                         settings.FileNamePattern = "Kirari_{yyyyMMdd_HHmmss}";
@@ -114,16 +122,19 @@ internal sealed class AppSettings
         return directory;
     }
 
-    public string FileExtension =>
-        OutputFormat.Equals("sdrjpg", StringComparison.OrdinalIgnoreCase) ? ".jpg" : ".png";
+    public string FileExtension => FileExtensionFor(OutputFormat);
+
+    public static string FileExtensionFor(string outputFormat) =>
+        outputFormat.Equals("sdrjpg", StringComparison.OrdinalIgnoreCase) ? ".jpg" : ".png";
 
     /// <summary>
     /// Expands the file name pattern ({...} = DateTime format) and appends the extension.
     /// SDR outputs use the base name as-is; HDR outputs carry an "_HDR" suffix, so an HDR file
     /// and its optional SDR companion form a natural pair (name_HDR.png / name.png).
     /// </summary>
-    public string BuildFileName()
+    public string BuildFileName(string? outputFormat = null)
     {
+        outputFormat ??= OutputFormat;
         var pattern = string.IsNullOrWhiteSpace(FileNamePattern) ? "Kirari_{yyyyMMdd_HHmmss}" : FileNamePattern;
         string name;
         try
@@ -137,8 +148,8 @@ internal sealed class AppSettings
         }
         foreach (var invalid in Path.GetInvalidFileNameChars())
             name = name.Replace(invalid, '_');
-        var suffix = OutputFormat.Equals("hdrpng", StringComparison.OrdinalIgnoreCase) ? "_HDR" : string.Empty;
-        return name + suffix + FileExtension;
+        var suffix = outputFormat.Equals("hdrpng", StringComparison.OrdinalIgnoreCase) ? "_HDR" : string.Empty;
+        return name + suffix + FileExtensionFor(outputFormat);
     }
 }
 

@@ -13,7 +13,7 @@ namespace HdrCapture;
 /// </summary>
 internal static class ClipboardWriter
 {
-    public static void CopySdr(HdrFrame frame, float sdrWhiteScale, byte[]? hdrPng = null)
+    public static void Copy(HdrFrame frame, float sdrWhiteScale, byte[] encodedImage, bool isPng)
     {
         var invScale = 1f / (sdrWhiteScale > 0 ? sdrWhiteScale : 1f);
         var pixels = new byte[frame.Width * frame.Height * 4];
@@ -30,23 +30,18 @@ internal static class ClipboardWriter
         bitmap.WritePixels(new Int32Rect(0, 0, frame.Width, frame.Height), pixels, frame.Width * 4, 0);
         bitmap.Freeze();
 
-        MemoryStream png;
-        if (hdrPng is not null)
+        var data = new DataObject();
+        data.SetImage(bitmap);
+        if (isPng)
         {
-            png = new MemoryStream(hdrPng);
+            data.SetData("PNG", new MemoryStream(encodedImage, writable: false), autoConvert: false);
         }
         else
         {
-            png = new MemoryStream();
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(bitmap));
-            encoder.Save(png);
-            png.Position = 0;
+            // WIC/Win32 consumers use different names for the same JPEG interchange data.
+            data.SetData("JPEG", encodedImage, autoConvert: false);
+            data.SetData("JFIF", new MemoryStream(encodedImage, writable: false), autoConvert: false);
         }
-
-        var data = new DataObject();
-        data.SetImage(bitmap);
-        data.SetData("PNG", png, autoConvert: false);
 
         // The clipboard can be transiently locked by other processes; retry briefly.
         for (var attempt = 0; ; attempt++)

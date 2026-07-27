@@ -55,10 +55,14 @@ internal static class OcrService
     {
         if (_engine is null)
         {
-            // Absolute paths: the package default resolves models against the working
-            // directory. Detection/classification come bundled; the Chinese recognition
-            // model + dictionary ship with this project (Apache-2.0, RapidAI/RapidOCR).
-            var models = System.IO.Path.Combine(AppContext.BaseDirectory, "models", "v5");
+            // Single-file apps use AppContext.BaseDirectory as their extraction cache. OCR
+            // models deliberately stay beside the user-visible executable, so resolve them
+            // from the process image instead. This is the same directory for normal builds.
+            var executablePath = Environment.ProcessPath;
+            var applicationDirectory = !string.IsNullOrWhiteSpace(executablePath)
+                ? System.IO.Path.GetDirectoryName(executablePath)!
+                : AppContext.BaseDirectory;
+            var models = System.IO.Path.Combine(applicationDirectory, "models", "v5");
             _engine = new RapidOcr();
             _engine.InitModels(
                 detPath: System.IO.Path.Combine(models, "ch_PP-OCRv5_mobile_det.onnx"),

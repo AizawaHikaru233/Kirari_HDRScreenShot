@@ -1,0 +1,11 @@
+<Project>
+  <!-- RapidOcrNet copies all of its models in CopyModelsPublish. This file is imported after
+       NuGet package targets, so cleanup is guaranteed to run after that copy completes. -->
+  <Target Name="TrimPublishOutput" AfterTargets="CopyModelsPublish">
+    <ItemGroup>
+      <UnneededPublishFiles Include="$(PublishDir)**\*.pdb" />
+      <UnneededPublishFiles Include="$(PublishDir)**\*.lib" />
+    </ItemGroup>
+    <Delete Files="$(PublishDir)models\v5\latin_PP-OCRv5_rec_mobile_infer.onnx;$(PublishDir)models\v5\ppocrv5_latin_dict.txt;@(UnneededPublishFiles)" />
+  </Target>
+</Project>

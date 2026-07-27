@@ -2,8 +2,10 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <AssemblyName>Kirari</AssemblyName>
-    <Version>1.1.0</Version>
-    <ApplicationIcon>kirari.ico</ApplicationIcon>
+    <Version>1.2.1</Version>
+    <RepositoryUrl>https://github.com/AizawaHikaru233/Kirari_HDRScreenShot</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/AizawaHikaru233/Kirari_HDRScreenShot</PackageProjectUrl>
+    <ApplicationIcon>assets\kirari.ico</ApplicationIcon>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <UseWPF>true</UseWPF>
     <UseWindowsForms>true</UseWindowsForms>
@@ -12,9 +14,23 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Keep the distribution folder small: use the installed .NET Desktop Runtime and bundle
+         managed/native application dependencies into the app host. OCR models remain files
+         because the inference runtime opens them by absolute path. -->
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <PublishTrimmed>false</PublishTrimmed>
+    <!-- English is the neutral resource set; ship only Simplified Chinese satellites. -->
+    <SatelliteResourceLanguages>en;zh-Hans</SatelliteResourceLanguages>
     <!-- DPI awareness is declared in app.manifest (PerMonitorV2) for the WPF host; that sets
          process-wide awareness which WinForms also honours, so suppress its API-preference notice. -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugSymbols>false</DebugSymbols>
+    <DebugType>none</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.1" />
@@ -23,8 +39,15 @@
     <PackageReference Include="RapidOcrNet" Version="3.0.0" />
   </ItemGroup>
   <ItemGroup>
-    <!-- Chinese PP-OCRv5 recognition model + dictionary (Apache-2.0, from RapidAI/RapidOCR). -->
-    <Content Include="models\v5\ch_PP-OCRv5_rec_mobile.onnx" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="models\v5\ppocrv5_dict.txt" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Keep all OCR models beside the executable. They are data files opened by path and
+         should not be hidden in the single-file extraction cache. -->
+    <Content Include="models\v5\ch_PP-OCRv5_rec_mobile.onnx"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
+    <Content Include="models\v5\ppocrv5_dict.txt"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest"
+             ExcludeFromSingleFile="true" />
   </ItemGroup>
 </Project>

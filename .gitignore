@@ -1,6 +1,10 @@
 bin/
 obj/
 publish/
+artifacts/
+.tools/
+*-test*/
+release-verify/
 *.user
 *.suo
 .vs/

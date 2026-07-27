@@ -18,7 +18,7 @@ Kirari 依赖以下第三方组件。所有组件均为开源许可，且与 GPL
 
 | 文件 | 许可 | 来源 |
 | --- | --- | --- |
-| `ch_PP-OCRv5_mobile_det.onnx`、`ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx`、`latin_PP-OCRv5_rec_mobile_infer.onnx`、`ppocrv5_latin_dict.txt` | Apache-2.0 | 随 RapidOcrNet 分发，源自 [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) / [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) |
+| `ch_PP-OCRv5_mobile_det.onnx`、`ch_PP-LCNet_x0_25_textline_ori_cls_mobile.onnx` | Apache-2.0 | 随 RapidOcrNet 分发，源自 [PaddleOCR](https://github.com/PaddlePaddle/PaddleOCR) / [RapidAI/RapidOCR](https://github.com/RapidAI/RapidOCR) |
 | `ch_PP-OCRv5_rec_mobile.onnx`、`ppocrv5_dict.txt` | Apache-2.0 | 从 RapidAI/RapidOCR（modelscope 镜像 v3.9.2）下载，SHA256 已校验 |
 
 ## 行为参考（未复制代码，无许可义务，仅致谢）

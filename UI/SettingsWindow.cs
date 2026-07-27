@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Forms = System.Windows.Forms;
 using WpfKeyEventArgs = System.Windows.Input.KeyEventArgs;
 using WpfColor = System.Windows.Media.Color;
@@ -14,6 +15,7 @@ internal sealed class ToggleSwitch : Border
     private static readonly Brush OnBrush = new SolidColorBrush(WpfColor.FromRgb(0x00, 0x67, 0xC0));
     private readonly Brush _offBrush;
     private readonly Border _knob;
+    private readonly TranslateTransform _knobOffset = new();
     private bool _isOn;
 
     public bool IsOn
@@ -37,7 +39,9 @@ internal sealed class ToggleSwitch : Border
             CornerRadius = new CornerRadius(9),
             Background = Brushes.White,
             Margin = new Thickness(3),
+            HorizontalAlignment = HorizontalAlignment.Left,
             VerticalAlignment = VerticalAlignment.Center,
+            RenderTransform = _knobOffset,
         };
         Child = _knob;
         MouseLeftButtonDown += (_, e) => { IsOn = !IsOn; e.Handled = true; };
@@ -47,7 +51,19 @@ internal sealed class ToggleSwitch : Border
     private void UpdateVisual()
     {
         Background = _isOn ? OnBrush : _offBrush;
-        _knob.HorizontalAlignment = _isOn ? HorizontalAlignment.Right : HorizontalAlignment.Left;
+        var targetOffset = _isOn ? 20d : 0d;
+        if (!IsLoaded)
+        {
+            _knobOffset.X = targetOffset;
+            return;
+        }
+
+        _knobOffset.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+        {
+            To = targetOffset,
+            Duration = TimeSpan.FromMilliseconds(140),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+        });
     }
 }
 
@@ -71,11 +87,15 @@ internal sealed class SettingsWindow : Window
     private readonly TextBox _patternBox;
     private readonly ToggleSwitch _saveOnFinish;
     private readonly ToggleSwitch _saveSdrCopy;
+    private readonly ToggleSwitch _normalizeSdrWhite;
     private readonly ToggleSwitch _autoStart;
     private readonly ToggleSwitch _hideTray;
     private readonly StackPanel _formatChips = new() { Orientation = Orientation.Horizontal };
     private readonly StackPanel _themeChips = new() { Orientation = Orientation.Horizontal };
     private readonly StackPanel _languageChips = new() { Orientation = Orientation.Horizontal };
+    private readonly TextBox _referenceSdrWhiteBox;
+    private readonly bool _hdrPngAvailable;
+    private TextBlock? _updateStatus;
     private string _format;
     private string _theme;
     private string _language;
@@ -91,6 +111,10 @@ internal sealed class SettingsWindow : Window
         _theme = current.Theme;
         _language = current.Language;
         _dark = ThemeService.IsDark(ThemeService.Parse(current.Theme));
+        var (monitor, _) = NativeMethods.MonitorUnderCursor();
+        _hdrPngAvailable = DisplayInfo.ForMonitor(monitor) is not { HdrActive: false };
+        if (!_hdrPngAvailable && _format.Equals("hdrpng", StringComparison.OrdinalIgnoreCase))
+            _format = "sdrpng";
 
         _textPrimary = new SolidColorBrush(_dark ? WpfColor.FromRgb(0xF2, 0xF3, 0xF5) : WpfColor.FromRgb(0x1A, 0x1A, 0x1A));
         _textSecondary = new SolidColorBrush(_dark ? WpfColor.FromRgb(0x9A, 0xA0, 0xA8) : WpfColor.FromRgb(0x6B, 0x72, 0x80));
@@ -115,6 +139,8 @@ internal sealed class SettingsWindow : Window
         _patternBox = FieldBox(current.FileNamePattern, readOnly: false);
         _saveOnFinish = new ToggleSwitch(_dark) { IsOn = current.SaveFileOnFinish };
         _saveSdrCopy = new ToggleSwitch(_dark) { IsOn = current.SaveSdrCopy };
+        _normalizeSdrWhite = new ToggleSwitch(_dark) { IsOn = current.NormalizeSdrWhite };
+        _referenceSdrWhiteBox = FieldBox(current.ReferenceSdrWhiteNits.ToString("0", System.Globalization.CultureInfo.InvariantCulture), readOnly: false);
         _autoStart = new ToggleSwitch(_dark) { IsOn = AutoStart.IsEnabled() };
         _hideTray = new ToggleSwitch(_dark) { IsOn = current.HideTrayIcon };
 
@@ -162,7 +188,12 @@ internal sealed class SettingsWindow : Window
                     "Pressing Enter copies to the clipboard and also writes a file to the save folder"), _saveOnFinish),
             ToggleRow(L.T("HDR 截图时额外保存 SDR PNG", "Save an SDR PNG alongside HDR captures"),
                 L.T("输出 name_HDR.png 时同时生成 name.png 普通截图",
-                    "Writing name_HDR.png also produces a plain name.png"), _saveSdrCopy)));
+                    "Writing name_HDR.png also produces a plain name.png"), _saveSdrCopy),
+            ToggleRow(L.T("统一 HDR 下 SDR 白点", "Normalize HDR SDR white"),
+                L.T("忽略拍摄端系统 SDR 亮度差异；HDR 与 SDR 预览都使用下方参考白点",
+                    "Normalizes captures from different Windows SDR-brightness settings to the reference below"), _normalizeSdrWhite),
+            Label(L.T("统一 SDR 白点（nit，建议 203）", "Reference SDR white (nit, 203 recommended)")),
+            Rounded(_referenceSdrWhiteBox)));
         content.Children.Add(Card(L.T("常规", "General"),
             Label(L.T("界面主题（截图工具栏同步生效）", "Theme (capture toolbar follows)")),
             _themeChips,
@@ -175,7 +206,73 @@ internal sealed class SettingsWindow : Window
                     "Only the hotkey remains; launch the app again to reopen settings"), _hideTray)));
         content.Children.Add(buttons);
 
-        Content = new Border
+        // Keep the settings window compact: capture/output controls and application details
+        // live on separate pages while the bottom Save/Cancel commands remain shared.
+        var titleBar = content.Children[0];
+        var captureHotkeyCard = content.Children[1];
+        var captureSavingCard = content.Children[2];
+        var generalCard = content.Children[3];
+        content.Children.Clear();
+
+        var capturePage = new StackPanel();
+        capturePage.RenderTransform = new TranslateTransform();
+        capturePage.Children.Add(captureHotkeyCard);
+        capturePage.Children.Add(captureSavingCard);
+        var generalPage = new StackPanel { Visibility = Visibility.Collapsed };
+        generalPage.RenderTransform = new TranslateTransform();
+        generalPage.Children.Add(generalCard);
+        generalPage.Children.Add(BuildAboutCard());
+
+        var captureTab = FlatButton(L.T("截图与保存", "Capture & Save"), accent: true);
+        var generalTab = FlatButton(L.T("通用与关于", "General & About"), accent: false);
+        generalTab.Margin = new Thickness(8, 0, 0, 0);
+        var tabs = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Margin = new Thickness(0, 0, 0, 14),
+        };
+        tabs.Children.Add(captureTab);
+        tabs.Children.Add(generalTab);
+
+        var pages = new Grid();
+        pages.Children.Add(capturePage);
+        pages.Children.Add(generalPage);
+        void ShowPage(bool capture)
+        {
+            var visiblePage = capture ? capturePage : generalPage;
+            var hiddenPage = capture ? generalPage : capturePage;
+            if (visiblePage.Visibility != Visibility.Visible)
+            {
+                hiddenPage.Visibility = Visibility.Collapsed;
+                visiblePage.Visibility = Visibility.Visible;
+                visiblePage.Opacity = 0;
+                var translation = (TranslateTransform)visiblePage.RenderTransform;
+                translation.X = capture ? -12 : 12;
+                visiblePage.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                });
+                translation.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(translation.X, 0, TimeSpan.FromMilliseconds(160))
+                {
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                });
+            }
+            captureTab.Background = capture ? Accent : _fieldBg;
+            captureTab.Foreground = capture ? Brushes.White : _textPrimary;
+            captureTab.BorderBrush = capture ? Accent : _cardBorder;
+            generalTab.Background = capture ? _fieldBg : Accent;
+            generalTab.Foreground = capture ? _textPrimary : Brushes.White;
+            generalTab.BorderBrush = capture ? _cardBorder : Accent;
+        }
+        captureTab.Click += (_, _) => ShowPage(true);
+        generalTab.Click += (_, _) => ShowPage(false);
+
+        content.Children.Add(titleBar);
+        content.Children.Add(tabs);
+        content.Children.Add(pages);
+        content.Children.Add(buttons);
+
+        var root = new Border
         {
             Background = new SolidColorBrush(_dark ? WpfColor.FromRgb(0x1F, 0x21, 0x24) : WpfColor.FromRgb(0xF6, 0xF8, 0xFA)),
             CornerRadius = new CornerRadius(12),
@@ -185,6 +282,26 @@ internal sealed class SettingsWindow : Window
             Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = 24, ShadowDepth = 4, Opacity = 0.25 },
             Margin = new Thickness(12),
         };
+        root.RenderTransformOrigin = new Point(0.5, 0.5);
+        root.RenderTransform = new ScaleTransform(0.98, 0.98);
+        root.Opacity = 0;
+        Content = root;
+        Loaded += (_, _) =>
+        {
+            root.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            });
+            var scale = (ScaleTransform)root.RenderTransform;
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.98, 1, TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            });
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.98, 1, TimeSpan.FromMilliseconds(180))
+            {
+                EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            });
+        };
     }
 
     // ---------------------------------------------------------------- chips
@@ -192,9 +309,14 @@ internal sealed class SettingsWindow : Window
     private void RebuildFormatChips()
     {
         _formatChips.Children.Clear();
-        AddChip(_formatChips, "HDR PNG", "hdrpng", _format, value => { _format = value; RebuildFormatChips(); });
+        AddChip(_formatChips, "HDR PNG", "hdrpng", _format, value => { _format = value; RebuildFormatChips(); }, _hdrPngAvailable);
         AddChip(_formatChips, "SDR PNG", "sdrpng", _format, value => { _format = value; RebuildFormatChips(); });
         AddChip(_formatChips, "SDR JPG", "sdrjpg", _format, value => { _format = value; RebuildFormatChips(); });
+        var hdrPng = _format.Equals("hdrpng", StringComparison.OrdinalIgnoreCase);
+        _saveSdrCopy.IsEnabled = hdrPng;
+        _saveSdrCopy.Opacity = hdrPng ? 1 : 0.45;
+        _saveSdrCopy.Cursor = hdrPng ? Cursors.Hand : Cursors.Arrow;
+        if (!hdrPng) _saveSdrCopy.IsOn = false;
     }
 
     private void RebuildThemeChips()
@@ -213,7 +335,7 @@ internal sealed class SettingsWindow : Window
         AddChip(_languageChips, "English", "en", _language, value => { _language = value; RebuildLanguageChips(); });
     }
 
-    private void AddChip(StackPanel host, string text, string value, string current, Action<string> pick)
+    private void AddChip(StackPanel host, string text, string value, string current, Action<string> pick, bool enabled = true)
     {
         var active = current == value;
         var chip = new Border
@@ -224,7 +346,8 @@ internal sealed class SettingsWindow : Window
             CornerRadius = new CornerRadius(6),
             Padding = new Thickness(14, 6, 14, 6),
             Margin = new Thickness(0, 0, 8, 0),
-            Cursor = Cursors.Hand,
+            Cursor = enabled ? Cursors.Hand : Cursors.Arrow,
+            Opacity = enabled ? 1 : 0.45,
             Child = new TextBlock
             {
                 Text = text,
@@ -232,7 +355,8 @@ internal sealed class SettingsWindow : Window
                 Foreground = active ? Brushes.White : _textPrimary,
             },
         };
-        chip.MouseLeftButtonDown += (_, e) => { pick(value); e.Handled = true; };
+        if (enabled)
+            chip.MouseLeftButtonDown += (_, e) => { pick(value); e.Handled = true; };
         host.Children.Add(chip);
     }
 
@@ -345,6 +469,61 @@ internal sealed class SettingsWindow : Window
         return row;
     }
 
+    private UIElement BuildAboutCard()
+    {
+        var github = FlatButton("GitHub", accent: false);
+        github.Click += (_, _) => ProjectInfo.OpenGitHub();
+        var checkUpdate = FlatButton(L.T("检查更新", "Check for updates"), accent: true);
+        checkUpdate.Margin = new Thickness(8, 0, 0, 0);
+        checkUpdate.Click += async (_, _) => await CheckForUpdatesAsync(checkUpdate);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+        actions.Children.Add(github);
+        actions.Children.Add(checkUpdate);
+
+        _updateStatus = new TextBlock
+        {
+            Foreground = _textSecondary,
+            FontSize = 12,
+            TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(0, 12, 0, 0),
+        };
+        return Card(L.T("关于", "About"),
+            Label($"Kirari v{ProjectInfo.CurrentVersionText}"),
+            Label(ProjectInfo.GitHubUrl.AbsoluteUri),
+            actions,
+            _updateStatus);
+    }
+
+    private async Task CheckForUpdatesAsync(Button checkUpdate)
+    {
+        if (_updateStatus is null) return;
+        checkUpdate.IsEnabled = false;
+        _updateStatus.Foreground = _textSecondary;
+        _updateStatus.Text = L.T("正在检查 GitHub 更新...", "Checking GitHub for updates...");
+        try
+        {
+            var result = await ProjectInfo.CheckForUpdatesAsync();
+            if (result.IsUpdateAvailable)
+            {
+                _updateStatus.Foreground = Accent;
+                _updateStatus.Text = L.T($"发现新版本 {result.LatestVersion}，已打开发布页。", $"Version {result.LatestVersion} is available. Opening the release page.");
+                ProjectInfo.OpenUrl(result.ReleaseUrl);
+            }
+            else
+            {
+                _updateStatus.Text = L.T("当前已是最新版本。", "You are up to date.");
+            }
+        }
+        catch (Exception ex)
+        {
+            _updateStatus.Text = L.T($"检查更新失败：{ex.Message}", $"Update check failed: {ex.Message}");
+        }
+        finally
+        {
+            checkUpdate.IsEnabled = true;
+        }
+    }
+
     private Button FlatButton(string text, bool accent)
     {
         var button = new Button
@@ -419,7 +598,9 @@ internal sealed class SettingsWindow : Window
             SaveDirectory = string.IsNullOrWhiteSpace(_directoryBox.Text) ? null : _directoryBox.Text.Trim(),
             FileNamePattern = string.IsNullOrWhiteSpace(_patternBox.Text) ? "Kirari_{yyyyMMdd_HHmmss}" : _patternBox.Text.Trim(),
             SaveFileOnFinish = _saveOnFinish.IsOn,
-            SaveSdrCopy = _saveSdrCopy.IsOn,
+            SaveSdrCopy = _format.Equals("hdrpng", StringComparison.OrdinalIgnoreCase) && _saveSdrCopy.IsOn,
+            NormalizeSdrWhite = _normalizeSdrWhite.IsOn,
+            ReferenceSdrWhiteNits = ParseReferenceSdrWhite(_referenceSdrWhiteBox.Text),
             HideTrayIcon = _hideTray.IsOn,
             Theme = _theme,
             Language = _language,
@@ -438,6 +619,10 @@ internal sealed class SettingsWindow : Window
         >= Key.NumPad0 and <= Key.NumPad9 => "Num" + (key - Key.NumPad0),
         _ => key.ToString(),
     };
+
+    private static float ParseReferenceSdrWhite(string text) =>
+        float.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value) &&
+        float.IsFinite(value) && value >= 40f && value <= 500f ? value : 203f;
 
     private static HotkeyConfig CloneHotkey(HotkeyConfig source) => new()
     {

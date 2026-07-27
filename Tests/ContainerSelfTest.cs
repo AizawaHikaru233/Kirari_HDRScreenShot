@@ -8,6 +8,10 @@ internal static class ContainerSelfTest
 {
     public static void Run()
     {
+        VerifyReleaseVersionParsing();
+        VerifySdrWhiteNormalization();
+        VerifyOcrModelLoad();
+
         var pixels = new Half[]
         {
             (Half)0.1f, (Half)0.2f, (Half)0.3f, (Half)1f,
@@ -51,6 +55,78 @@ internal static class ContainerSelfTest
         {
             Directory.Delete(directory, recursive: true);
         }
+    }
+
+    private static void VerifyOcrModelLoad()
+    {
+        // This forces both the external model paths and ONNX Runtime native library to load.
+        // A small blank frame is sufficient; recognition content is not relevant to packaging.
+        var blank = new byte[256 * 256 * 4];
+        _ = OcrService.RecognizeAsync(blank, 256, 256).GetAwaiter().GetResult();
+    }
+
+    private static void VerifyReleaseVersionParsing()
+    {
+        if (!ProjectInfo.ParseReleaseVersion("v1.2.0").Equals(new Version(1, 2, 0)) ||
+            ProjectInfo.ParseReleaseVersion("1.2.1").CompareTo(new Version(1, 2, 0)) <= 0)
+            throw new InvalidOperationException("GitHub release version parsing failed.");
+    }
+
+    /// <summary>
+    /// The same SDR scene captured with different Windows HDR SDR-white settings
+    /// must converge to the same HDR reference value and SDR preview value.
+    /// </summary>
+    private static void VerifySdrWhiteNormalization()
+    {
+        const float lowSourceWhite = 80f;
+        const float highSourceWhite = 203f;
+        const float referenceWhite = 203f;
+        var sourceValues = new[] { 0f, 0.18f, 0.5f, 1f };
+
+        foreach (var sourceValue in sourceValues)
+        {
+            // DWM writes the same SDR scene into scRGB at the active SDR-white scale.
+            var capturedLow = sourceValue * lowSourceWhite / HdrPngExporter.SdrWhiteNits;
+            var capturedHigh = sourceValue * highSourceWhite / HdrPngExporter.SdrWhiteNits;
+            var normalizedLow = SdrWhiteNormalizer.NormalizeScRgb(capturedLow, lowSourceWhite, referenceWhite);
+            var normalizedHigh = SdrWhiteNormalizer.NormalizeScRgb(capturedHigh, highSourceWhite, referenceWhite);
+            var expectedHdr = sourceValue * referenceWhite / HdrPngExporter.SdrWhiteNits;
+
+            AssertNear(normalizedLow, expectedHdr, "Low-SDR-white HDR normalization is incorrect.");
+            AssertNear(normalizedHigh, expectedHdr, "High-SDR-white HDR normalization is incorrect.");
+
+            // An SDR fallback divides the normalized frame by the reference scale,
+            // returning the original standard-SDR linear value in both cases.
+            var previewLow = normalizedLow * HdrPngExporter.SdrWhiteNits / referenceWhite;
+            var previewHigh = normalizedHigh * HdrPngExporter.SdrWhiteNits / referenceWhite;
+            AssertNear(previewLow, sourceValue, "Low-SDR-white SDR preview is not stable.");
+            AssertNear(previewHigh, sourceValue, "High-SDR-white SDR preview is not stable.");
+        }
+
+        // HDR highlights retain the display peak while the SDR anchor moves.
+        const float peakNits = 1000f;
+        AssertNear(SdrWhiteNormalizer.MapLuminanceNits(lowSourceWhite, lowSourceWhite, referenceWhite, peakNits), referenceWhite,
+            "The SDR-white anchor did not move to the reference level.");
+        AssertNear(SdrWhiteNormalizer.MapLuminanceNits(peakNits, lowSourceWhite, referenceWhite, peakNits), peakNits,
+            "The HDR peak should remain fixed.");
+
+        var coloredFrame = new HdrFrame
+        {
+            Width = 1,
+            Height = 1,
+            Pixels = new Half[] { (Half)0.5f, (Half)0.25f, (Half)0.125f, (Half)1f },
+        };
+        var normalizedFrame = SdrWhiteNormalizer.NormalizeFrame(coloredFrame, lowSourceWhite, referenceWhite, peakNits);
+        AssertNear((float)normalizedFrame.Pixels[0] / (float)normalizedFrame.Pixels[1], 2f,
+            "SDR normalization changed pixel chromaticity.");
+        AssertNear((float)normalizedFrame.Pixels[1] / (float)normalizedFrame.Pixels[2], 2f,
+            "SDR normalization changed pixel chromaticity.");
+    }
+
+    private static void AssertNear(float actual, float expected, string message)
+    {
+        if (MathF.Abs(actual - expected) > 0.0001f)
+            throw new InvalidOperationException($"{message} Expected {expected}, got {actual}.");
     }
 
     private static void VerifyHdrPng(byte[] bytes)

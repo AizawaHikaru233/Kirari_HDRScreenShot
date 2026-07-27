@@ -42,6 +42,10 @@ dotnet build .\HdrCapture.csproj
 dotnet run --project .\HdrCapture.csproj
 ```
 
+## 分发包
+
+发布包命名为 `Kirari-v<版本>-win-x64.zip`，解压后运行 `Kirari.exe`。这是框架依赖型单文件发布：Windows 10 2004+ / Windows 11 需要已安装 **.NET 10 Windows Desktop Runtime x64**；缺少时 .NET 宿主会显示官方安装提示。`models\v5` 内的四个 OCR 文件必须保留在 `Kirari.exe` 同级目录，不能单独移动或删除。HDR PNG 建议在 HDR 显示器上查看。
+
 程序静默启动到通知区域，不显示主窗口。截图默认保存在 `%USERPROFILE%\Pictures\HDR Capture`（可配置），设置保存在 `%APPDATA%\Kirari\settings.json`。
 
 托盘右键菜单：**截图**（交互式截图）、**选择窗口/显示器**（Windows 系统选择器，可捕获被遮挡 / 后台窗口）、**设置…**（快捷键、输出格式、保存目录、文件名格式、主题、语言等）、**打开保存目录**、**退出**。若快捷键被其他程序占用会弹出通知，可在设置中改绑。
@@ -52,7 +56,7 @@ dotnet run --project .\HdrCapture.csproj
 dotnet run --project .\HdrCapture.csproj -- --verify-container
 ```
 
-合成一张浮点 HDR 帧并验证三种输出：HDR PNG 的完整信号（cICP/cLLI/mDCV/iCCP，且无伴随文件）、SDR PNG / SDR JPG 的文件签名，以及“额外保存 SDR PNG”的配对命名。
+合成一张浮点 HDR 帧并验证三种输出：HDR PNG 的完整信号（cICP/cLLI/mDCV/iCCP，且无伴随文件）、SDR PNG / SDR JPG 的文件签名、“额外保存 SDR PNG”的配对命名，以及 OCR 模型加载。
 
 ## 已知限制
 
@@ -109,6 +113,10 @@ dotnet build .\HdrCapture.csproj
 dotnet run --project .\HdrCapture.csproj
 ```
 
+## Distribution package
+
+Release packages are named `Kirari-v<version>-win-x64.zip`; extract it and run `Kirari.exe`. This is a framework-dependent single-file release: Windows 10 version 2004+ / Windows 11 requires **.NET 10 Windows Desktop Runtime x64**. When it is missing, the .NET host shows the official install prompt. Keep all four OCR files in `models\v5` beside `Kirari.exe`; they must not be moved or deleted. An HDR display is recommended for viewing HDR PNGs.
+
 The application starts silently in the notification area; it does not open a main window. Screenshots are saved to `%USERPROFILE%\Pictures\HDR Capture` (configurable); settings persist in `%APPDATA%\Kirari\settings.json`.
 
 Tray menu: **Capture** (the interactive capture), **Pick window/display** (the Windows system picker, which can also capture occluded/background windows), **Settings…** (hotkey, output format, save folder, file name pattern, theme, language), **Open save folder**, **Exit**. If the hotkey is owned by another application a notification appears and it can be rebound in Settings.
@@ -119,7 +127,7 @@ A headless container self-test is included:
 dotnet run --project .\HdrCapture.csproj -- --verify-container
 ```
 
-It synthesizes a floating-point HDR frame and verifies all three outputs: the HDR PNG signaling (cICP/cLLI/mDCV/iCCP, no companion files), the SDR PNG / SDR JPG file signatures, and the save-SDR-copy pairing.
+It synthesizes a floating-point HDR frame and verifies all three outputs: the HDR PNG signaling (cICP/cLLI/mDCV/iCCP, no companion files), the SDR PNG / SDR JPG file signatures, the save-SDR-copy pairing, and OCR model loading.
 
 ## Known limitations
 
